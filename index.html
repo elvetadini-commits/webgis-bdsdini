@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistem Informasi Spasial</title>
+    
+    <!-- Load CSS Leaflet dan Leaflet Draw -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+    
+    <style>
+        body, html { margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; height: 100%; overflow: hidden; }
+        #map { width: 100vw; height: 100vh; z-index: 1; }
+        
+        /* Panel Sidebar Melayang di Kiri */
+        .glass-panel {
+            position: absolute; top: 20px; left: 20px; width: 320px;
+            background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px);
+            z-index: 1000; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+            padding: 20px; max-height: 85vh; overflow-y: auto; border: 1px solid rgba(255,255,255,0.5);
+            transition: all 0.3s ease;
+        }
+
+        .panel-header { font-size: 1.2rem; font-weight: 700; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }
+        .toggle-btn { cursor: pointer; background: #ecf0f1; border-radius: 50%; width: 28px; height: 28px; display: flex; justify-content: center; align-items: center; font-size: 0.9rem; transition: 0.2s; }
+        .toggle-btn:hover { background: #bdc3c7; }
+
+        .section-title { font-size: 0.85rem; font-weight: 600; color: #7f8c8d; text-transform: uppercase; margin: 15px 0 10px 0; letter-spacing: 1px; }
+        
+        .legend-item { display: flex; align-items: center; margin-bottom: 10px; font-size: 0.95rem; color: #34495e; cursor: pointer; }
+        .legend-item input { margin-right: 12px; cursor: pointer; width: 16px; height: 16px; }
+        .color-box { width: 20px; height: 20px; border-radius: 4px; margin-right: 10px; display: inline-block; border: 1px solid rgba(0,0,0,0.1); }
+        
+        select, input[type="text"] { width: 100%; padding: 8px 12px; margin-bottom: 10px; border: 1px solid #bdc3c7; border-radius: 6px; box-sizing: border-box; font-family: inherit; }
+        
+        .coord-box {
+            position: absolute; bottom: 25px; right: 25px; background: rgba(44, 62, 80, 0.85); color: #ecf0f1;
+            padding: 10px 20px; border-radius: 30px; z-index: 1000; font-family: 'Courier New', Courier, monospace;
+            font-size: 0.9rem; box-shadow: 0 4px 15px rgba(0,0,0,0.2); backdrop-filter: blur(5px);
+        }
+
+        .popup-title { color: #d35400; font-weight: bold; font-size: 14px; margin-bottom: 8px; border-bottom: 1px solid #e67e22; padding-bottom: 4px; }
+        .custom-popup-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .custom-popup-table th { text-align: left; padding: 4px 8px 4px 0; font-weight: 600; color: #34495e; border-bottom: 1px solid #eee; white-space: nowrap; }
+        .custom-popup-table td { padding: 4px 0 4px 8px; color: #2c3e50; border-bottom: 1px solid #eee; }
+        .custom-popup-table tr:last-child th, .custom-popup-table tr:last-child td { border-bottom: none; }
+
+        .popup-form button { width: 100%; background-color: #2980b9; color: white; border: none; padding: 10px; border-radius: 6px; cursor: pointer; font-weight: bold; margin-top: 5px; }
+        .leaflet-control-layers { display: none; } 
+
+        .credit-name { margin-top: 15px; padding-top: 10px; border-top: 1px dashed #bdc3c7; text-align: center; font-size: 0.85rem; color: #7f8c8d; }
+    </style>
+</head>
+<body>
+
+<!-- Panel Navigasi & Legenda -->
+<div class="glass-panel" id="main-panel">
+    <div class="panel-header">
+        <span>WebGIS Dhini 🌐</span>
+        <span class="toggle-btn" id="toggle-btn" title="Sembunyikan Panel">➖</span>
+    </div>
+    
+    <div id="panel-body">
+        <div class="section-title">Mode Penyimpanan (Draw)</div>
+        <select id="simpan_ke_tabel">
+            <option value="tower_seluler">Titik (Tower Seluler)</option>
+            <option value="jalan">Garis (Jaringan Jalan)</option>
+            <option value="lahan">Area (Penggunaan Lahan)</option>
+        </select>
+        
+        <div class="section-title">Base Map</div>
+        <select id="basemap_selector">
+            <option value="osm">OpenStreetMap (Default)</option>
+            <option value="satelit">Google Satellite</option>
+        </select>
+
+        <div class="section-title">Layer & Legenda</div>
+        
+        <label class="legend-item"><input type="checkbox" id="chk-wilayah" checked><div class="color-box" style="background: rgba(41, 128, 185, 0.1); border: 2px solid #2980b9;"></div> Batas Wilayah</label>
+        <label class="legend-item"><input type="checkbox" id="chk-lahan" checked><div class="color-box" style="background: rgba(39, 174, 96, 0.5); border: 1px solid #27ae60;"></div> Penggunaan Lahan</label>
+        <label class="legend-item"><input type="checkbox" id="chk-jalan" checked><div class="color-box" style="background: #c0392b; height: 6px; margin-top: 6px; border: none;"></div> Jaringan Jalan</label>
+        <label class="legend-item"><input type="checkbox" id="chk-tower" checked><div class="color-box" style="background: url('https://cdn-icons-png.flaticon.com/512/684/684908.png'); background-size: cover; border: none;"></div> Tower Seluler</label>
+
+        <!-- Nama Pembuat -->
+        <div class="credit-name">
+            Dibuat oleh: <b>Dhini Elveta</b>
+        </div>
+    </div>
+</div>
+
+<div class="coord-box" id="coord-box">Lat: 0.00000 | Lng: 0.00000</div>
+<div id="map"></div>
+
+<!-- Load JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+
+<script>
+    var osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OSM' });
+    var satellite = L.tileLayer('http://mt0.google.com/vt/lyrs=s&hl=en&x={x}&y={y}&z={z}', { attribution: '© Google' });
+
+    var map = L.map('map', { center: [-4.6, 105.1], zoom: 9, layers: [osm], zoomControl: false });
+    L.control.zoom({ position: 'topright' }).addTo(map);
+
+    map.on('mousemove', function(e) { document.getElementById('coord-box').innerText = `Lat: ${e.latlng.lat.toFixed(5)} | Lng: ${e.latlng.lng.toFixed(5)}`; });
+
+    document.getElementById('basemap_selector').addEventListener('change', function(e) {
+        if(e.target.value === 'osm') { map.addLayer(osm); map.removeLayer(satellite); }
+        else { map.addLayer(satellite); map.removeLayer(osm); }
+    });
+
+    var layerWilayah = new L.LayerGroup().addTo(map);
+    var layerLahan = new L.LayerGroup().addTo(map);
+    var layerJalan = new L.LayerGroup().addTo(map);
+    var layerTower = new L.FeatureGroup().addTo(map);
+
+    fetch('http://localhost:3000/api/wilayah').then(res => res.json()).then(data => {
+        L.geoJSON(data, {
+            style: { color: "#2980b9", weight: 2, fillOpacity: 0.1 },
+            onEachFeature: function(f, l) {
+                var tbl = `<div class="popup-title">[BATAS WILAYAH]</div>
+                           <table class="custom-popup-table">
+                             <tr><th>ID Wilayah</th><td>${f.properties.id_wilayah}</td></tr>
+                             <tr><th>Kabupaten</th><td><b>${f.properties.nama_kabupaten}</b></td></tr>
+                             <tr><th>Nama Bupati</th><td>${f.properties.nama_bupati}</td></tr>
+                           </table>`;
+                l.bindPopup(tbl);
+            }
+        }).addTo(layerWilayah);
+    });
+
+    fetch('http://localhost:3000/api/lahan').then(res => res.json()).then(data => {
+        L.geoJSON(data, {
+            style: function(f) {
+                let w = "#27ae60"; if(f.properties.penggunaan_lahan === 'PEMUKIMAN') w = "#f39c12"; if(f.properties.penggunaan_lahan === 'TAMBAK') w = "#3498db";
+                return { color: w, weight: 1, fillOpacity: 0.5 };
+            },
+            onEachFeature: function(f, l) {
+                var tbl = `<div class="popup-title">[PENGGUNAAN LAHAN]</div>
+                           <table class="custom-popup-table">
+                             <tr><th>ID Lahan</th><td>${f.properties.id_lahan}</td></tr>
+                             <tr><th>Jenis Lahan</th><td><b>${f.properties.penggunaan_lahan}</b></td></tr>
+                           </table>`;
+                l.bindPopup(tbl);
+            }
+        }).addTo(layerLahan);
+    });
+
+    fetch('http://localhost:3000/api/jalan').then(res => res.json()).then(data => {
+        L.geoJSON(data, {
+            style: { color: "#c0392b", weight: 4 },
+            onEachFeature: function(f, l) {
+                var tbl = `<div class="popup-title">[JARINGAN JALAN]</div>
+                           <table class="custom-popup-table">
+                             <tr><th>ID Jalan</th><td>${f.properties.id_jalan}</td></tr>
+                             <tr><th>Nama Jalan</th><td><b>${f.properties.nama_jalan}</b></td></tr>
+                           </table>`;
+                l.bindPopup(tbl);
+            }
+        }).addTo(layerJalan);
+    });
+
+    var towerIcon = L.icon({ iconUrl: 'https://cdn-icons-png.flaticon.com/512/684/684908.png', iconSize: [32, 32] });
+    fetch('http://localhost:3000/api/map-data').then(res => res.json()).then(data => {
+        L.geoJSON(data, {
+            pointToLayer: function (f, latlng) { return L.marker(latlng, { icon: towerIcon }); },
+            onEachFeature: function(f, l) { 
+                var tbl = `
+                    <div class="popup-title">[TOWER SELULER]</div>
+                    <table class="custom-popup-table">
+                        <tr><th>ID Tower</th><td>${f.properties.id_tower}</td></tr>
+                        <tr><th>Provider</th><td><b>${f.properties.nama_provider}</b></td></tr>
+                        <tr><th>Jaringan</th><td>${f.properties.jenis_jaringan}</td></tr>
+                        <tr><th>Produk</th><td>${f.properties.produk}</td></tr>
+                        <tr><th style="vertical-align: top;">Alamat</th><td>${f.properties.alamat_kantor_pusat}</td></tr>
+                        <tr><th style="vertical-align: top;">Saham</th><td>${f.properties.pemilik_saham}</td></tr>
+                    </table>`;
+                l.bindPopup(tbl, { minWidth: 350, maxWidth: 400 }); 
+                layerTower.addLayer(l);
+            }
+        }).addTo(map);
+    });
+
+    document.getElementById('chk-wilayah').addEventListener('change', function() { this.checked ? map.addLayer(layerWilayah) : map.removeLayer(layerWilayah); });
+    document.getElementById('chk-lahan').addEventListener('change', function() { this.checked ? map.addLayer(layerLahan) : map.removeLayer(layerLahan); });
+    document.getElementById('chk-jalan').addEventListener('change', function() { this.checked ? map.addLayer(layerJalan) : map.removeLayer(layerJalan); });
+    document.getElementById('chk-tower').addEventListener('change', function() { this.checked ? map.addLayer(layerTower) : map.removeLayer(layerTower); });
+
+    var drawControl = new L.Control.Draw({ position: 'topright', edit: { featureGroup: layerTower }, draw: { polygon: true, polyline: true, marker: true, circle: false, rectangle: false } });
+    map.addControl(drawControl);
+
+    map.on(L.Draw.Event.CREATED, function (event) {
+        var layer = event.layer;
+        var modeTabel = document.getElementById('simpan_ke_tabel').value; 
+        
+        var popupContent = `
+            <div class="popup-form">
+                <label><b>Nama Objek:</b></label><br>
+                <input type="text" id="nama_input" placeholder="Masukkan nama...">
+                <p style="font-size:0.8rem; color:red; margin:5px 0;">Akan disimpan ke tabel: <b>${modeTabel}</b></p>
+                <button id="btn_simpan">Simpan Database</button>
+            </div>
+        `;
+        layer.bindPopup(popupContent).openPopup();
+        layerTower.addLayer(layer); 
+    });
+
+    // --- LOGIKA MENYEMBUNYIKAN PANEL (COLLAPSE) ---
+    document.getElementById('toggle-btn').addEventListener('click', function() {
+        var body = document.getElementById('panel-body');
+        if (body.style.display === 'none') {
+            body.style.display = 'block';
+            this.innerText = '➖';
+            this.title = 'Sembunyikan Panel';
+        } else {
+            body.style.display = 'none';
+            this.innerText = '➕';
+            this.title = 'Tampilkan Panel';
+        }
+    });
+
+</script>
+</body>
+</html>
